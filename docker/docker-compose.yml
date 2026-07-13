@@ -9,6 +9,11 @@ services:
       - DISPLAY=${DISPLAY}
       - MUJOCO_GL=glfw
       - QT_X11_NO_MITSHM=1
+      # Without this the NVIDIA container runtime only exposes compute/utility
+      # libs, so MuJoCo's GLX viewer falls back to Mesa's software rasterizer
+      # (swrast_dri.so) and the render loop crawls even though physics/policy
+      # run fine on the GPU.
+      - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
       # X11 socket — lets the MuJoCo viewer / teleop GUI show on the host display
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
