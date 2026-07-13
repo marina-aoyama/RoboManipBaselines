@@ -1,0 +1,21 @@
+.git
+**/__pycache__
+**/*.pyc
+
+# Generated data — mounted as volumes instead, not baked into the image
+robo_manip_baselines/dataset
+robo_manip_baselines/checkpoint
+
+# third_party submodules not used by the base+ACT image (add back if you
+# extend the Dockerfile to install their extras)
+third_party/3D-Diffusion-Policy
+third_party/FlowPolicy
+third_party/ManiFlow_Policy
+third_party/YCB_sim
+third_party/diffusion_policy
+third_party/eipl
+third_party/gello_software
+third_party/lerobot
+third_party/pyorbbecsdk
+third_party/roboagent
+third_party/tacto

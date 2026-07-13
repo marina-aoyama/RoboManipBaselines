@@ -1,0 +1,37 @@
+services:
+  robomanip:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: robo-manip-baselines:act
+    container_name: robo_manip_baselines
+    environment:
+      - DISPLAY=${DISPLAY}
+      - MUJOCO_GL=glfw
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      # X11 socket — lets the MuJoCo viewer / teleop GUI show on the host display
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Persist collected datasets and training checkpoints outside the container
+      - ../robo_manip_baselines/dataset:/workspace/RoboManipBaselines/robo_manip_baselines/dataset
+      - ../robo_manip_baselines/checkpoint:/workspace/RoboManipBaselines/robo_manip_baselines/checkpoint
+    devices:
+      # SpaceMouse (USB HID) passthrough
+      - /dev/bus/usb:/dev/bus/usb
+    # Simplest way to guarantee hidraw/USB access for the SpaceMouse without
+    # hand-picking device nodes/udev rules. Narrow to explicit `devices:` +
+    # cap_add if you'd rather not run privileged.
+    privileged: true
+    # Host networking sidesteps X11/DISPLAY quirks between container and host
+    # on Linux. Not needed/available on macOS/Windows.
+    network_mode: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true
+    command: /bin/bash
