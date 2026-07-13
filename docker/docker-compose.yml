@@ -5,6 +5,7 @@ services:
       dockerfile: docker/Dockerfile
     image: robo-manip-baselines:act
     container_name: robo_manip_baselines
+    shm_size: '2gb'
     environment:
       - DISPLAY=${DISPLAY}
       - MUJOCO_GL=glfw
