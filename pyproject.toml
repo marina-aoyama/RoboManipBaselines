@@ -39,6 +39,7 @@ dependencies = [
   "torchcodec==0.10.0",
   "tensorboard",
   "pynput>=1.8.1",
+  "wandb",
 ]
 dynamic = ["version"]
 

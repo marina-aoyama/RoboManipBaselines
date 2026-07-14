@@ -178,6 +178,31 @@ class TrainBase(ABC):
 
         parser.add_argument("--seed", type=int, default=42, help="random seed")
 
+        parser.add_argument(
+            "--use_wandb",
+            action=argparse.BooleanOptionalAction,
+            default=False,
+            help="Whether to log training to Weights & Biases",
+        )
+        parser.add_argument(
+            "--wandb_project",
+            type=str,
+            default="robo_manip_baselines",
+            help="wandb project name",
+        )
+        parser.add_argument(
+            "--wandb_entity",
+            type=str,
+            default=None,
+            help="wandb entity (user or team); defaults to your wandb default entity",
+        )
+        parser.add_argument(
+            "--wandb_run_name",
+            type=str,
+            default=None,
+            help="wandb run name (defaults to the checkpoint directory name)",
+        )
+
         self.set_additional_args(parser)
 
         if argv is None:
@@ -265,8 +290,26 @@ class TrainBase(ABC):
         # Setup tensorboard
         self.writer = SummaryWriter(self.args.checkpoint_dir)
 
+        # Setup wandb
+        self.setup_wandb()
+
         # Print dataset information
         self.print_dataset_info()
+
+    def setup_wandb(self):
+        if not self.args.use_wandb:
+            return
+
+        import wandb
+
+        wandb.init(
+            project=self.args.wandb_project,
+            entity=self.args.wandb_entity,
+            name=self.args.wandb_run_name
+            or os.path.basename(os.path.normpath(self.args.checkpoint_dir)),
+            config=self.args,
+            dir=self.args.checkpoint_dir,
+        )
 
     def set_data_stats(self):
         # Load dataset
@@ -498,6 +541,14 @@ class TrainBase(ABC):
         for k, v in epoch_summary.items():
             self.writer.add_scalar(f"{k}/{label}", v, epoch)
 
+        if self.args.use_wandb:
+            import wandb
+
+            wandb.log(
+                {f"{k}/{label}": v for k, v in epoch_summary.items() if k != "epoch"},
+                step=epoch,
+            )
+
         return epoch_summary
 
     def update_best_ckpt(self, epoch_summary, policy=None):
@@ -536,3 +587,8 @@ class TrainBase(ABC):
 
     def close(self):
         self.writer.close()
+
+        if self.args.use_wandb:
+            import wandb
+
+            wandb.finish()
