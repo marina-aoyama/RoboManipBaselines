@@ -21,6 +21,8 @@ services:
       # Persist collected datasets and training checkpoints outside the container
       - ../robo_manip_baselines/dataset:/workspace/RoboManipBaselines/robo_manip_baselines/dataset
       - ../robo_manip_baselines/checkpoint:/workspace/RoboManipBaselines/robo_manip_baselines/checkpoint
+      # New residual RL codebase, developed inside the container but persisted on the host
+      - ../robo_manip_baselines/residual_rl:/workspace/RoboManipBaselines/robo_manip_baselines/residual_rl
     devices:
       # SpaceMouse (USB HID) passthrough
       - /dev/bus/usb:/dev/bus/usb
