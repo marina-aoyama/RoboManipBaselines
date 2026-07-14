@@ -38,8 +38,41 @@ $ python ./bin/Train.py Act --dataset_dir ./dataset/MujocoUR5eCable_<date_suffix
 $ python ./bin/Rollout.py Act MujocoUR5eCable --checkpoint ./checkpoint/Act/<...>/policy_last.ckpt --world_idx 0
 ```
 
-`dataset/` and `checkpoint/` are bind-mounted from the host, so results
-survive container restarts.
+The whole repo is bind-mounted from the host at `/workspace/RoboManipBaselines`,
+so source edits (from either side) and collected datasets/checkpoints are
+shared live and survive container restarts.
+
+## Attaching from VS Code instead of a terminal
+
+If you'd rather build/start the container from the CLI and then work inside
+it from a VS Code window (instead of staying in the terminal you launched it
+from):
+
+```console
+$ cd docker
+$ docker compose up -d --build   # --build only needed after Dockerfile changes
+```
+
+`up -d` reuses the same `command: /bin/bash` + `tty: true` / `stdin_open: true`
+from `docker-compose.yml` — bash idles on the open pty instead of exiting, so
+the container keeps running in the background.
+
+Then, with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+extension installed:
+
+- Command Palette (`Ctrl+Shift+P`) → **Dev Containers: Attach to Running
+  Container...**
+- Select `robo_manip_baselines` (the `container_name` in the compose file).
+- Open `/workspace/RoboManipBaselines` in the new window.
+
+`network_mode: host` and the X11 socket mount still apply, so the MuJoCo
+viewer / teleop GUI keep working from the attached window's terminal.
+
+Stop the container from the CLI when done:
+
+```console
+$ docker compose down
+```
 
 ## Adding more policies later
 
