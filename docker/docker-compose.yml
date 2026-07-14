@@ -18,9 +18,9 @@ services:
     volumes:
       # X11 socket — lets the MuJoCo viewer / teleop GUI show on the host display
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      # Persist collected datasets and training checkpoints outside the container
-      - ../robo_manip_baselines/dataset:/workspace/RoboManipBaselines/robo_manip_baselines/dataset
-      - ../robo_manip_baselines/checkpoint:/workspace/RoboManipBaselines/robo_manip_baselines/checkpoint
+      # Bind-mount the whole repo so source edits (host or in-container) are
+      # shared live, not baked in only at `docker compose build` time via COPY.
+      - ..:/workspace/RoboManipBaselines
     devices:
       # SpaceMouse (USB HID) passthrough
       - /dev/bus/usb:/dev/bus/usb

@@ -2,6 +2,12 @@
 **/__pycache__
 **/*.pyc
 
+# Not needed inside the image (only used by the host to build/run it) —
+# excluding them so doc/compose-only edits don't bust the COPY cache and
+# force a full pip reinstall.
+docker/docker-compose.yml
+docker/DOCKER.md
+
 # Generated data — mounted as volumes instead, not baked into the image
 robo_manip_baselines/dataset
 robo_manip_baselines/checkpoint
