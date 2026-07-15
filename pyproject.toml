@@ -126,6 +126,9 @@ benchmarks = [
   "python-pptx",
   "imageio-ffmpeg",
 ]
+residual-rl = [
+  "stable-baselines3",
+]
 
 [tool.setuptools.packages.find]
 include = ["robo_manip_baselines", "robo_manip_baselines.*"]
