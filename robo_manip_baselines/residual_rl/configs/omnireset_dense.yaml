@@ -1,0 +1,24 @@
+# Diverse resets (Near-Object / Stable-Grasp / Near-Goal) + dense reach/dist
+# *progress* reward shaping + early truncation of dead episodes. Avoidance-
+# only: this reduces how often an unrecoverable post-grasp-failure state is
+# entered, it does not enable recovery from one (the residual's action bound
+# is unchanged). reach/dist reward the *reduction* in distance since the last
+# step, not absolute proximity -- see RewardTermConfig's docstring in
+# config.py for why (absolute-proximity reward is farmable by loitering near
+# a good state instead of finishing the task).
+rewards:
+  reach:
+    enabled: true
+    weight: 5.0
+  dist:
+    enabled: true
+    weight: 5.0
+resets:
+  default: 0.1
+  near_object: 0.3
+  stable_grasp: 0.3
+  near_goal: 0.3
+early_truncation:
+  enabled: true
+  patience_seconds: 5.0
+  reach_threshold: 0.3

@@ -1,0 +1,23 @@
+# Full RL baseline for comparison against residual RL: no ACT prior at all,
+# the policy's [-1,1] action maps directly onto the full actuator range.
+# Uses the same diverse resets + dense reward + early truncation machinery.
+policy_mode: full
+# reach/dist reward the *reduction* in distance since the last step (progress
+# reward), not absolute proximity -- see RewardTermConfig's docstring in
+# config.py.
+rewards:
+  reach:
+    enabled: true
+    weight: 5.0
+  dist:
+    enabled: true
+    weight: 5.0
+resets:
+  default: 0.1
+  near_object: 0.3
+  stable_grasp: 0.3
+  near_goal: 0.3
+early_truncation:
+  enabled: true
+  patience_seconds: 5.0
+  reach_threshold: 0.3

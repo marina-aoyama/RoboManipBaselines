@@ -20,7 +20,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
-from robo_manip_baselines.residual_rl import ResidualToolboxEnv
+from robo_manip_baselines.residual_rl import ResidualRlConfig, ResidualToolboxEnv
 
 
 class SuccessRateCallback(BaseCallback):
@@ -84,6 +84,16 @@ def parse_args():
     )
     parser.add_argument(
         "--act_checkpoint", type=str, required=True, help="frozen ACT checkpoint file"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=os.path.join(os.path.dirname(__file__), "configs", "baseline.yaml"),
+        help=(
+            "path to a ResidualRlConfig YAML (see configs/baseline.yaml for the "
+            "original sparse-reward/single-reset setup, configs/omnireset_dense.yaml "
+            "for diverse resets + dense reach/dist reward + early truncation)"
+        ),
     )
     parser.add_argument(
         "--world_idx_list",
@@ -158,6 +168,8 @@ def parse_args():
 def main():
     args = parse_args()
     args.act_checkpoint = os.path.abspath(args.act_checkpoint)
+    args.config = os.path.abspath(args.config)
+    config = ResidualRlConfig.from_yaml(args.config)
 
     if args.checkpoint_dir is None:
         act_ckpt_dirname = os.path.basename(os.path.dirname(args.act_checkpoint))
@@ -190,6 +202,7 @@ def main():
     def make_env():
         env = ResidualToolboxEnv(
             act_checkpoint=args.act_checkpoint,
+            config=config,
             world_idx_list=args.world_idx_list,
             residual_action_scale_arm=args.residual_action_scale_arm,
             residual_action_scale_gripper=args.residual_action_scale_gripper,
@@ -231,6 +244,7 @@ def main():
 
     residual_meta = {
         "act_checkpoint": args.act_checkpoint,
+        "config_path": args.config,
         "residual_action_scale_arm": args.residual_action_scale_arm,
         "residual_action_scale_gripper": args.residual_action_scale_gripper,
         "world_idx_list": args.world_idx_list,

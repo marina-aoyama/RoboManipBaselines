@@ -15,7 +15,7 @@ import numpy as np
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
-from robo_manip_baselines.residual_rl import ResidualToolboxEnv
+from robo_manip_baselines.residual_rl import ResidualRlConfig, ResidualToolboxEnv
 
 
 def parse_args():
@@ -33,6 +33,12 @@ def parse_args():
         type=str,
         default=None,
         help="overrides the act_checkpoint recorded in residual_meta.pkl",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="overrides the config path recorded in residual_meta.pkl",
     )
     parser.add_argument(
         "--world_idx_list",
@@ -68,9 +74,12 @@ def main():
     world_idx_list = (
         args.world_idx_list if args.world_idx_list is not None else meta["world_idx_list"]
     )
+    config_path = args.config or meta.get("config_path")
+    config = ResidualRlConfig.from_yaml(config_path) if config_path else None
 
     raw_env = ResidualToolboxEnv(
         act_checkpoint=act_checkpoint,
+        config=config,
         world_idx_list=world_idx_list,
         residual_action_scale_arm=meta["residual_action_scale_arm"],
         residual_action_scale_gripper=meta["residual_action_scale_gripper"],
