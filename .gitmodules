@@ -4,7 +4,7 @@
 	ignore = untracked
 [submodule "third_party/act"]
 	path = third_party/act
-	url = https://github.com/mmurooka/act.git
+	url = git@github.com:marina-aoyama/act.git
 	ignore = untracked
 [submodule "third_party/diffusion_policy"]
 	path = third_party/diffusion_policy
