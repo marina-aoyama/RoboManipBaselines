@@ -67,6 +67,11 @@ class DataKey:
     # Command velocity of omni-directional mobile base
     COMMAND_MOBILE_OMNI_VEL = "command_mobile_omni_vel"
 
+    # Measured pose of the manipulated object (tx, ty, tz, qw, qx, qy, qz)
+    MEASURED_OBJECT_POSE = "measured_object_pose"
+    # Measured pose of the goal/target location (tx, ty, tz, qw, qx, qy, qz)
+    MEASURED_GOAL_POSE = "measured_goal_pose"
+
     # All keys of measured data
     MEASURED_DATA_KEYS = [
         MEASURED_JOINT_POS,
@@ -80,6 +85,8 @@ class DataKey:
         # MEASURED_EEF_VEL,
         MEASURED_EEF_WRENCH,
         MEASURED_MOBILE_OMNI_VEL,
+        MEASURED_OBJECT_POSE,
+        MEASURED_GOAL_POSE,
     ]
 
     # All keys of command data
@@ -161,6 +168,8 @@ class DataKey:
                 return 6 * num_eef
         elif key in (DataKey.MEASURED_MOBILE_OMNI_VEL, DataKey.COMMAND_MOBILE_OMNI_VEL):
             return 3
+        elif key in (DataKey.MEASURED_OBJECT_POSE, DataKey.MEASURED_GOAL_POSE):
+            return 7
         else:
             raise ValueError(f"[{cls.__name__}] Invalid data key: {key}")
 
@@ -169,6 +178,8 @@ class DataKey:
         """Get the policy input/output dimension of the data specified by key."""
         if key in (DataKey.MEASURED_EEF_POSE, DataKey.COMMAND_EEF_POSE):
             return 9 * cls.get_num_eef(env)
+        elif key in (DataKey.MEASURED_OBJECT_POSE, DataKey.MEASURED_GOAL_POSE):
+            return 9
         return cls.get_dim(key, env)
 
     @classmethod

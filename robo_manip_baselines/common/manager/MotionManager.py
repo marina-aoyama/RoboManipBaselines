@@ -84,6 +84,10 @@ class MotionManager:
             return self.env.unwrapped.get_eef_wrench_from_obs(obs)
         elif key == DataKey.MEASURED_MOBILE_OMNI_VEL:
             return self.env.unwrapped.get_mobile_vel_from_obs(obs)
+        elif key == DataKey.MEASURED_OBJECT_POSE:
+            return self.env.unwrapped.get_object_pose()
+        elif key == DataKey.MEASURED_GOAL_POSE:
+            return self.env.unwrapped.get_goal_pose()
         else:
             raise ValueError(
                 f"[{self.__class__.__name__}] Invalid measured data key: {key}"

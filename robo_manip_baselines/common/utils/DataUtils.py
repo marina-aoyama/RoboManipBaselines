@@ -43,14 +43,24 @@ def denormalize_data(data, stats):
 
 def convert_data_to_policy(data, key):
     """Convert data from RMB/env representation to policy representation."""
-    if key in (DataKey.MEASURED_EEF_POSE, DataKey.COMMAND_EEF_POSE):
+    if key in (
+        DataKey.MEASURED_EEF_POSE,
+        DataKey.COMMAND_EEF_POSE,
+        DataKey.MEASURED_OBJECT_POSE,
+        DataKey.MEASURED_GOAL_POSE,
+    ):
         return get_pose9_from_pose7(data)
     return data
 
 
 def convert_data_from_policy(data, key):
     """Convert data from policy representation to RMB/env representation."""
-    if key in (DataKey.MEASURED_EEF_POSE, DataKey.COMMAND_EEF_POSE):
+    if key in (
+        DataKey.MEASURED_EEF_POSE,
+        DataKey.COMMAND_EEF_POSE,
+        DataKey.MEASURED_OBJECT_POSE,
+        DataKey.MEASURED_GOAL_POSE,
+    ):
         return get_pose7_from_pose9(data)
     return data
 

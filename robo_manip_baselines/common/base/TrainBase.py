@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import psutil
 import torch
+import yaml
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -49,10 +50,19 @@ class TrainBase(ABC):
             )
 
         parser.add_argument(
+            "--config",
+            type=str,
+            default=None,
+            help="path to a YAML file providing default values for any of the "
+            "arguments below (e.g. state_keys/action_keys/camera_names); values "
+            "passed explicitly on the command line still take precedence",
+        )
+
+        parser.add_argument(
             "--dataset_dir",
             type=str,
-            required=True,
-            help="dataset directory",
+            default=None,
+            help="dataset directory (required, either here or via --config)",
         )
         parser.add_argument(
             "--checkpoint_dir",
@@ -207,7 +217,34 @@ class TrainBase(ABC):
 
         if argv is None:
             argv = sys.argv
-        self.args = parser.parse_args(argv[1:])
+        argv = argv[1:]
+
+        # Discover --config with a throwaway parser first (the main parser has
+        # required-like constraints, e.g. dataset_dir, that a config file may be
+        # the one satisfying, so it can't be used for this pre-parse).
+        config_pre_parser = argparse.ArgumentParser(add_help=False)
+        config_pre_parser.add_argument("--config", type=str, default=None)
+        config_path = config_pre_parser.parse_known_args(argv)[0].config
+
+        if config_path is not None:
+            with open(config_path, "r") as f:
+                config_dict = yaml.safe_load(f) or {}
+            known_dests = {action.dest for action in parser._actions}
+            unknown_keys = set(config_dict.keys()) - known_dests
+            if unknown_keys:
+                raise ValueError(
+                    f"[{self.__class__.__name__}] Unknown key(s) in config file "
+                    f"{config_path}: {sorted(unknown_keys)}"
+                )
+            parser.set_defaults(**config_dict)
+
+        self.args = parser.parse_args(argv)
+
+        if self.args.dataset_dir is None:
+            raise ValueError(
+                f"[{self.__class__.__name__}] --dataset_dir is required, either on "
+                "the command line or via --config"
+            )
 
         # Set checkpoint directory if it is not specified
         if self.args.checkpoint_dir is None:

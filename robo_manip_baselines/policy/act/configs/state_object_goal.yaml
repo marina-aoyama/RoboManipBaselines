@@ -1,0 +1,9 @@
+# Example ACT training config: state-only (object/goal pose), no images.
+# Usage: python3 bin/Train.py Act --config policy/act/configs/state_object_goal.yaml --dataset_dir <path>
+state_keys:
+  - measured_joint_pos
+  - measured_object_pose
+  - measured_goal_pose
+action_keys:
+  - command_joint_pos
+camera_names: []

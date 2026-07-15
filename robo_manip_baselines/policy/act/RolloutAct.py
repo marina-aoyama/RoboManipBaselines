@@ -19,12 +19,32 @@ class RolloutAct(RolloutBase):
             action="store_true",
             help="whether to disable temporal ensembling of the inferred policy",
         )
+        parser.add_argument(
+            "--mpc",
+            action="store_true",
+            help="whether to re-run inference at every timestep and execute only "
+            "the first action of each freshly predicted chunk (receding-horizon "
+            "control), discarding the rest of the chunk. Mutually exclusive with "
+            "--no_temp_ensem.",
+        )
 
     def setup_policy(self):
+        if self.args.mpc and self.args.no_temp_ensem:
+            raise ValueError(
+                f"[{self.__class__.__name__}] --mpc and --no_temp_ensem are "
+                "mutually exclusive."
+            )
+
         # Print policy information
         self.print_policy_info()
+        if self.args.mpc:
+            exec_mode_str = "MPC (re-infer every step, execute only action[0])"
+        elif self.args.no_temp_ensem:
+            exec_mode_str = "naive (execute whole chunk open-loop)"
+        else:
+            exec_mode_str = "temporal ensembling"
         print(
-            f"  - chunk size: {self.model_meta_info['data']['chunk_size']}, temporal ensembling: {not self.args.no_temp_ensem}"
+            f"  - chunk size: {self.model_meta_info['data']['chunk_size']}, execution mode: {exec_mode_str}"
         )
 
         # Construct policy
@@ -67,14 +87,18 @@ class RolloutAct(RolloutBase):
 
     def infer_policy(self):
         # Infer
-        if (not self.args.no_temp_ensem) or (len(self.policy_action_buf) == 0):
+        if (
+            self.args.mpc
+            or (not self.args.no_temp_ensem)
+            or (len(self.policy_action_buf) == 0)
+        ):
             state = self.get_state()
             images = self.get_images()
             action = self.policy(state, images)[0]
             self.policy_action_buf = list(
                 action.cpu().detach().numpy().astype(np.float64)
             )
-            if not self.args.no_temp_ensem:
+            if not self.args.no_temp_ensem and not self.args.mpc:
                 self.policy_action_buf_history.append(self.policy_action_buf)
                 if (
                     len(self.policy_action_buf_history)
@@ -83,7 +107,11 @@ class RolloutAct(RolloutBase):
                     self.policy_action_buf_history.pop(0)
 
         # Store action
-        if self.args.no_temp_ensem:
+        if self.args.mpc:
+            # Receding-horizon control: always execute only the freshest chunk's
+            # first action, discarding the rest (no blending, no reuse).
+            action = self.policy_action_buf[0]
+        elif self.args.no_temp_ensem:
             action = self.policy_action_buf.pop(0)
         else:
             # Apply temporal ensembling to action
@@ -112,17 +140,21 @@ class RolloutAct(RolloutBase):
         # Plot action
         self.plot_action(self.ax[0, len(self.camera_names)])
 
-        # Draw attention images
-        attention_shape = (15, 20 * len(self.camera_names))
-        for layer_idx, layer in enumerate(self.policy.model.transformer.encoder.layers):
-            if layer.self_attn.correlation_mat is None:
-                continue
-            self.ax[1, layer_idx].imshow(
-                layer.self_attn.correlation_mat[2:, 1].reshape(attention_shape)
-            )
-            self.ax[1, layer_idx].set_title(
-                f"attention image ({layer_idx})", fontsize=20
-            )
+        # Draw attention images (only meaningful when there are image patch tokens
+        # to attend over; the state-only, no-backbone transformer has none)
+        if len(self.camera_names) > 0:
+            attention_shape = (15, 20 * len(self.camera_names))
+            for layer_idx, layer in enumerate(
+                self.policy.model.transformer.encoder.layers
+            ):
+                if layer.self_attn.correlation_mat is None:
+                    continue
+                self.ax[1, layer_idx].imshow(
+                    layer.self_attn.correlation_mat[2:, 1].reshape(attention_shape)
+                )
+                self.ax[1, layer_idx].set_title(
+                    f"attention image ({layer_idx})", fontsize=20
+                )
 
         # Finalize plot
         self.canvas.draw()

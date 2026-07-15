@@ -549,6 +549,10 @@ class RolloutBase(OperationDataMixin, ABC):
         return state
 
     def get_images(self):
+        if len(self.camera_names) == 0:
+            # State-only (no cameras): placeholder, never consumed by the policy.
+            return torch.zeros((1, 0, 3, 1, 1), dtype=torch.uint8).to(self.device)
+
         # Assume all images are the same size
         images = np.stack(
             [self.info["rgb_images"][camera_name] for camera_name in self.camera_names],

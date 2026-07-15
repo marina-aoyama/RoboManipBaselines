@@ -3,6 +3,8 @@ from os import path
 import mujoco
 import numpy as np
 
+from robo_manip_baselines.common import DataKey
+
 from .MujocoUR5eEnvBase import MujocoUR5eEnvBase
 
 
@@ -44,6 +46,22 @@ class MujocoUR5eToolboxEnv(MujocoUR5eEnvBase):
         )  # [m]
 
         self.target_task = None  # One of [None, "pick", "pick_and_place"]
+
+    @property
+    def measured_keys_to_save(self):
+        return [
+            *super().measured_keys_to_save,
+            DataKey.MEASURED_OBJECT_POSE,
+            DataKey.MEASURED_GOAL_POSE,
+        ]
+
+    def get_object_pose(self):
+        """Get the pose of the manipulated object (toolbox)."""
+        return self.get_body_pose("toolbox")
+
+    def get_goal_pose(self):
+        """Get the pose of the goal/target location (mat)."""
+        return self.get_body_pose("mat")
 
     def _get_reward(self):
         toolbox_pos = self.data.body("toolbox").xpos.copy()
