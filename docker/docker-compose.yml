@@ -3,7 +3,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: robo-manip-baselines:act
+    image: robo-manip-baselines:sim-policies
     container_name: robo_manip_baselines
     shm_size: '2gb'
     environment:

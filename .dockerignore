@@ -12,16 +12,52 @@ docker/DOCKER.md
 robo_manip_baselines/dataset
 robo_manip_baselines/checkpoint
 
-# third_party submodules not used by the base+ACT image (add back if you
-# extend the Dockerfile to install their extras)
-third_party/3D-Diffusion-Policy
-third_party/FlowPolicy
-third_party/ManiFlow_Policy
+# third_party submodules genuinely unused by the image: real-hardware /
+# multi-venv / non-pip policies out of scope for this container (see
+# "Policies not included" in DOCKER.md), plus sim benchmark suites unrelated
+# to RMB's own MuJoCo envs.
 third_party/YCB_sim
-third_party/diffusion_policy
-third_party/eipl
 third_party/gello_software
 third_party/lerobot
 third_party/pyorbbecsdk
-third_party/roboagent
 third_party/tacto
+
+# roboagent/detr and act/detr both build a package literally named "detr" —
+# installing both editable in one image would make the second install shadow
+# the first (see DOCKER.md notes). MT-ACT's scripts resolve `detr` purely via
+# their own sys.path.append at runtime, so third_party/roboagent's source
+# ships (not excluded above) but the Dockerfile deliberately never runs
+# `pip install -e` on it; only act/detr gets the "detr" registration.
+
+# Same story for pytorch3d: 3D-Diffusion-Policy, FlowPolicy and ManiFlow each
+# vendor a package named "pytorch3d". All three call only
+# pytorch3d.ops.sample_farthest_points, which the "simplified" fork provides,
+# so the Dockerfile installs that once and shares it — ManiFlow's full
+# pytorch3d source is excluded to avoid a redundant, much heavier CUDA build.
+third_party/ManiFlow_Policy/third_party/pytorch3d
+
+# Vendored benchmark-suite environments (Metaworld/Adroit/DexArt/RoboTwin/
+# VRL3/old mujoco-py/gym) that ship inside 3D-Diffusion-Policy, FlowPolicy and
+# ManiFlow_Policy — none of these are imported by the modules RMB's
+# Train/Rollout scripts actually use (only .policy/.model/.common), so they'd
+# just bloat the build context. Re-include if you want to run those upstream
+# benchmark tasks directly.
+third_party/3D-Diffusion-Policy/third_party/VRL3
+third_party/3D-Diffusion-Policy/third_party/Metaworld
+third_party/3D-Diffusion-Policy/third_party/dexart-release
+third_party/3D-Diffusion-Policy/third_party/mujoco-py-2.1.2.14
+third_party/3D-Diffusion-Policy/third_party/gym-0.21.0
+third_party/3D-Diffusion-Policy/third_party/rrl-dependencies
+third_party/FlowPolicy/third_party/VRL3
+third_party/FlowPolicy/third_party/Metaworld
+third_party/FlowPolicy/third_party/mujoco-py-2.1.2.14
+third_party/FlowPolicy/third_party/gym-0.21.0
+third_party/FlowPolicy/third_party/rrl-dependencies
+third_party/ManiFlow_Policy/third_party/VRL3
+third_party/ManiFlow_Policy/third_party/Metaworld
+third_party/ManiFlow_Policy/third_party/dexart-release
+third_party/ManiFlow_Policy/third_party/RoboTwin1.0
+third_party/ManiFlow_Policy/third_party/mujoco-py-2.1.2.14
+third_party/ManiFlow_Policy/third_party/gym-0.21.0
+third_party/ManiFlow_Policy/third_party/rrl-dependencies
+third_party/ManiFlow_Policy/third_party/visualizer

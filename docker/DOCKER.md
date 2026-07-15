@@ -1,11 +1,26 @@
 # Docker setup (unofficial)
 
 Not provided upstream — this `Dockerfile` / `docker-compose.yml` build the
-common install + ACT policy extras, per [../doc/quick_start.md](../doc/quick_start.md)
-and [../doc/install.md](../doc/install.md).
+common install plus every pip-installable simulation policy extra (SARNN,
+ACT, MT-ACT, Diffusion Policy, 3D Diffusion Policy, Flow Policy, ManiFlow
+Policy), per [../doc/quick_start.md](../doc/quick_start.md) and
+[../doc/install.md](../doc/install.md).
+
+### Policies not included
+
+- **GR00T, pi0** — each needs 3-4 separate virtualenvs, cloning an external
+  repo (Isaac-GR00T / lerobot) outside this repository, and (GR00T) a
+  flash-attn build against a live GPU. That's a different container model
+  entirely, not an extension of this one.
+- **TACTO, real-ur5e, real-xarm7, GELLO** — tactile-sensor / real-robot /
+  teleop-device environments that assume physical hardware on the host.
+- **Isaac Gym environments** — require Python 3.6-3.8, incompatible with this
+  image's Python 3.10.
 
 Build context is the repo root (`..`), since the build needs `pyproject.toml`
-and `third_party/act` — always run compose commands from this `docker/`
+and each installed policy's `third_party/<name>` sources (`act`, `roboagent`,
+`eipl`, `diffusion_policy`, `3D-Diffusion-Policy`, `FlowPolicy`,
+`ManiFlow_Policy`) — always run compose commands from this `docker/`
 directory, or pass `-f docker/docker-compose.yml` from the repo root.
 
 ## Host prerequisites (Linux)
@@ -76,11 +91,18 @@ $ docker compose down
 
 ## Adding more policies later
 
-Extend the `RUN pip install -e .[...]` line in the `Dockerfile` with
-additional extras (e.g. `.[act,diffusion-policy]`), add any apt packages
-the policy needs (see `../doc/install.md`), and remove the corresponding
-`third_party/<name>` entry from `../.dockerignore` so its source is included
-in the build context.
+All pip-installable simulation policies are already built in. To add one of
+the excluded ones (see "Policies not included" above):
+
+- Extend the `RUN pip install -e .[...]` line in the `Dockerfile` with any
+  new extras, add the corresponding `third_party/<name>` editable install
+  and any apt packages the policy needs (see `../doc/install.md`).
+- Remove the corresponding `third_party/<name>` entry from `../.dockerignore`
+  so its source is included in the build context.
+- Before installing a new third_party package editable, check whether its
+  `setup.py` `name=` collides with one already installed in the image (see
+  the `detr` / `pytorch3d` notes below) — combining previously-separate venvs
+  into one image is exactly what surfaces these collisions.
 
 ## Keyboard teleop gotcha
 
@@ -107,4 +129,31 @@ you're actually in `TeleopPhase`.
   this line.
 - If the `pin` (Pinocchio) pip install fails during `docker compose build`,
   the upstream docs suggest installing it via apt instead — see
-  [doc/install.md](doc/install.md).
+  [doc/install.md](../doc/install.md).
+- **ACT and MT-ACT both vendor a package literally named `detr`**
+  (`third_party/act/detr` and `third_party/roboagent/detr` — same name,
+  different DETR fork). Only `act/detr` is pip-installed; MT-ACT's
+  `TrainMtAct.py`/`RolloutMtAct.py` already `sys.path.append` their own
+  `third_party/roboagent` before `import detr`, which resolves correctly as
+  long as `roboagent/detr` is never separately pip-installed into the same
+  environment. Don't "fix" this by adding that install back — it would make
+  whichever one is installed last silently shadow the other for both
+  policies.
+- **Diffusion Policy 3D, Flow Policy and ManiFlow Policy all vendor a
+  package named `pytorch3d`.** All three only call
+  `pytorch3d.ops.sample_farthest_points`, so the Dockerfile installs the
+  lightweight `pytorch3d_simplified` fork (from `3D-Diffusion-Policy`) once
+  and all three share it; ManiFlow's full upstream `pytorch3d` copy is
+  excluded via `.dockerignore` rather than installed a second time under the
+  same name.
+- `pytorch3d_simplified`'s CUDA extension is built with `FORCE_CUDA=1` and a
+  fixed `TORCH_CUDA_ARCH_LIST`, since no GPU is visible during
+  `docker compose build` (only at `docker compose run`, via the `nvidia`
+  runtime) and the build would otherwise silently fall back to a CPU-only
+  extension. If the build fails on your CUDA/driver combination, either
+  adjust `TORCH_CUDA_ARCH_LIST` to your GPU's compute capability or drop both
+  vars (optionally add `PYTORCH3D_FORCE_NO_CUDA=1`) for a CPU-only build.
+- Diffusion Policy pulls in `robomimic==0.2.0`, which depends on an old
+  `gym` release with a broken `requires.txt` (`opencv-python>=3.` isn't a
+  valid version specifier) — if `pip install` fails on that, see the fix in
+  [doc/install.md](../doc/install.md#diffusion-policy).
