@@ -131,6 +131,19 @@ def parse_args():
         ),
     )
     parser.add_argument(
+        "--ent_coef_init",
+        type=float,
+        default=2.0,
+        help=(
+            "Initial value of the auto-tuned entropy coefficient (only used when "
+            "--ent_coef=auto; SB3's own default is 1.0). A higher starting value "
+            "doesn't change the decay rate, just buys more steps before the same "
+            "exploration floor is reached -- one of several independent levers "
+            "against premature entropy collapse (see also --learning_starts, "
+            "--train_freq, --norm_reward)."
+        ),
+    )
+    parser.add_argument(
         "--target_entropy",
         type=str,
         default="-3.5",
@@ -141,6 +154,49 @@ def parse_args():
             "this sparse-reward task, cutting off exploration before the policy "
             "stabilized. A less negative value (e.g. -3.5) makes the auto-tuner "
             "settle at a higher exploration floor instead of decaying toward 0."
+        ),
+    )
+    parser.add_argument(
+        "--learning_starts",
+        type=int,
+        default=2000,
+        help=(
+            "env steps of pure random exploration before any gradient update "
+            "(including on the entropy coefficient) begins. SB3's own default "
+            "(100) starts optimizing almost immediately, giving the replay buffer "
+            "very little diverse experience before entropy starts getting pulled "
+            "down; raising this delays the whole collapse clock and seeds a more "
+            "diverse buffer first."
+        ),
+    )
+    parser.add_argument(
+        "--train_freq",
+        type=int,
+        default=4,
+        help=(
+            "collect this many env steps between each round of gradient updates "
+            "(SB3 default: 1, i.e. one update per env step). A larger value means "
+            "fewer entropy-coefficient (and actor/critic) gradient steps per env "
+            "step collected, directly slowing entropy decay measured on the "
+            "env-step timeline."
+        ),
+    )
+    parser.add_argument(
+        "--gradient_steps",
+        type=int,
+        default=1,
+        help="gradient updates performed per --train_freq env steps collected",
+    )
+    parser.add_argument(
+        "--norm_reward",
+        action="store_true",
+        help=(
+            "normalize reward via VecNormalize (default: off, raw reward). With "
+            "dense reach/dist terms at weight=5.0, raw Q-targets are large, which "
+            "pushes the actor toward exploitation (and thus lower realized policy "
+            "entropy) fast; normalizing keeps Q-value magnitude from dominating "
+            "the actor loss early. Safe to toggle independently of rollout -- "
+            "rollout only uses the saved obs normalization stats, never reward."
         ),
     )
     parser.add_argument("--total_timesteps", type=int, default=100_000)
@@ -212,12 +268,12 @@ def main():
         return Monitor(env)
 
     vec_env = DummyVecEnv([make_env])
-    vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=False)
+    vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=args.norm_reward)
 
     try:
         ent_coef = float(args.ent_coef)
     except ValueError:
-        ent_coef = args.ent_coef  # e.g. "auto"
+        ent_coef = f"auto_{args.ent_coef_init}"  # e.g. "auto_2.0"
 
     try:
         target_entropy = float(args.target_entropy)
@@ -231,6 +287,9 @@ def main():
         seed=args.seed,
         ent_coef=ent_coef,
         target_entropy=target_entropy,
+        learning_starts=args.learning_starts,
+        train_freq=args.train_freq,
+        gradient_steps=args.gradient_steps,
         tensorboard_log=args.checkpoint_dir,
     )
     model.learn(
