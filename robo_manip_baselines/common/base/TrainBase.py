@@ -477,8 +477,8 @@ class TrainBase(ABC):
             shuffle=shuffle,
             pin_memory=True,
             num_workers=self.args.num_workers,
-            persistent_workers=True,
-            prefetch_factor=4,
+            persistent_workers=self.args.num_workers > 0,
+            prefetch_factor=4 if self.args.num_workers > 0 else None,
         )
 
         return dataloader

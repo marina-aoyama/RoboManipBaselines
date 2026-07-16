@@ -232,15 +232,17 @@ class TrainManiFlowPolicy(TrainBase, TrainPointCloudMixin):
             ]
             obs_encoder_conf = {
                 "shape_meta": shape_meta,
-                "model_name": "r3m",
-                "pretrained": False,
-                "frozen": False,
+                # ViT-S/14 (384-d) over ViT-B/L to limit the downstream
+                # conditioning dim given our small number of demos
+                "model_name": "vit_small_patch14_dinov2.lvd142m",
+                "pretrained": True,
+                "frozen": True,
                 "global_pool": "",
                 "feature_aggregation": None,
                 "position_encording": "sinusoidal",
                 "downsample_ratio": 32,
                 "use_group_norm": True,
-                "share_rgb_model": False,
+                "share_rgb_model": True,
                 "imagenet_norm": True,
                 "transforms": obs_encoder_transforms,
             }

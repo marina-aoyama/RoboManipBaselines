@@ -36,9 +36,34 @@ class RolloutManiFlowPolicy(RolloutBase):
             action="store_true",
             help="Whether to force plotting of colored point clouds",
         )
+        parser.add_argument(
+            "--n_action_steps",
+            type=int,
+            default=None,
+            help="number of actions to execute per inference before replanning "
+            "(overrides the value saved at training time; must not exceed horizon)",
+        )
+        parser.add_argument(
+            "--num_inference_steps",
+            type=int,
+            default=None,
+            help="number of ODE integration steps in the flow-matching sampler "
+            "(overrides the value saved at training time; fewer steps is faster "
+            "inference but may reduce action quality)",
+        )
 
     def setup_policy(self):
         self.policy_type = self.model_meta_info["policy"]["policy_type"]
+
+        if self.args.n_action_steps is not None:
+            self.model_meta_info["policy"]["args"]["n_action_steps"] = (
+                self.args.n_action_steps
+            )
+            self.model_meta_info["data"]["n_action_steps"] = self.args.n_action_steps
+        if self.args.num_inference_steps is not None:
+            self.model_meta_info["policy"]["args"]["num_inference_steps"] = (
+                self.args.num_inference_steps
+            )
 
         # Print policy information
         self.print_policy_info()
