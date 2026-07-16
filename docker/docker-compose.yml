@@ -5,7 +5,7 @@ services:
       dockerfile: docker/Dockerfile
     image: robo-manip-baselines:sim-policies
     container_name: robo_manip_baselines
-    shm_size: '8gb'
+    shm_size: '16gb'
     environment:
       - DISPLAY=${DISPLAY}
       - MUJOCO_GL=glfw
