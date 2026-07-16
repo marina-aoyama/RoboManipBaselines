@@ -59,6 +59,11 @@ mt-act = [
   "lru_cache",
   "click",
   "sentence-transformers",
+  # Caps the transformers version sentence-transformers pulls in unpinned:
+  # newer transformers imports is_offline_mode from huggingface_hub, which
+  # doesn't exist in the huggingface_hub<=0.25.0 that maniflow-policy pins
+  # (needed there for diffusers==0.11.1's HfFolder/cached_download usage).
+  "transformers==4.45.2",
 ]
 diffusion-policy = [
   "cffi",
@@ -98,7 +103,8 @@ maniflow-policy = [
   "diffusers==0.11.1",
   "open3d",
   "timm",
-  "huggingface_hub<=0.25.0"
+  "huggingface_hub<=0.25.0",
+  "httpx",
 ]
 tacto = [
   "pybullet",
