@@ -142,6 +142,50 @@ class RmbData:
         def dtype(self):
             return np.float32
 
+    class RmbHdf5RgbImage:
+        """Resizes an RGB image dataset stored in a single HDF5 file, mirroring RmbRgbVideo's image_size handling."""
+
+        def __init__(self, dataset, image_size=None):
+            self.dataset = dataset
+            self.image_size = None if image_size is None else tuple(image_size)
+
+        def __len__(self):
+            return len(self.dataset)
+
+        def __getitem__(self, idx):
+            data = self.dataset[idx]
+            if self.image_size is None:
+                return data
+            if data.ndim == 3:  # (H, W, C)
+                return cv2.resize(
+                    data, self.image_size, interpolation=cv2.INTER_LINEAR
+                )
+            elif data.ndim == 4:  # (T, H, W, C)
+                return np.stack(
+                    [
+                        cv2.resize(
+                            frame, self.image_size, interpolation=cv2.INTER_LINEAR
+                        )
+                        for frame in data
+                    ],
+                    axis=0,
+                )
+            else:
+                raise ValueError(
+                    f"[{self.__class__.__name__}] Unexpected image data ndim: {data.ndim}, expected 3 or 4"
+                )
+
+        @property
+        def shape(self):
+            if self.image_size is None:
+                return self.dataset.shape
+            width, height = self.image_size
+            return (*self.dataset.shape[:-3], height, width, self.dataset.shape[-1])
+
+        @property
+        def dtype(self):
+            return self.dataset.dtype
+
     def __init__(self, path, enable_cache=False, mode="r", image_size=None):
         self.path = path
         self.enable_cache = enable_cache
@@ -193,6 +237,10 @@ class RmbData:
 
     def __getitem__(self, key):
         if self.is_single_hdf5:
+            if self.image_size is not None and DataKey.is_rgb_image_key(key):
+                return self.RmbHdf5RgbImage(
+                    self.h5file[key], image_size=self.image_size
+                )
             return self.h5file[key]
         elif DataKey.is_rgb_image_key(key):
             return self.RmbRgbVideo(
