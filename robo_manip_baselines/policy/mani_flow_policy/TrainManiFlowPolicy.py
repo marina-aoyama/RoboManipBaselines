@@ -394,8 +394,8 @@ class TrainManiFlowPolicy(TrainBase, TrainPointCloudMixin):
             if epoch % max(self.args.num_epochs // 10, 1) == 0:
                 self.save_current_ckpt(f"epoch{epoch:0>4}", policy=policy)
 
-        # Save last checkpoint
-        self.save_current_ckpt("last", policy=policy)
+            # Save last checkpoint (overwritten every epoch so an interrupted run still has one)
+            self.save_current_ckpt("last", policy=policy)
 
         # Save best checkpoint
         self.save_best_ckpt()

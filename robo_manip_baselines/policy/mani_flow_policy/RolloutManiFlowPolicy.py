@@ -103,7 +103,7 @@ class RolloutManiFlowPolicy(RolloutBase):
     def setup_plot(self):
         fig_ax = plt.subplots(
             2,
-            1,
+            max(len(self.camera_names), 1),
             figsize=(13.5, 6.0),
             dpi=60,
             squeeze=False,

@@ -598,6 +598,9 @@ class TrainBase(ABC):
                 "loss": epoch_summary["loss"],
                 "state_dict": copy.deepcopy(policy.state_dict()),
             }
+            # Persist immediately so the best checkpoint survives an interrupted run,
+            # without accumulating disk space (overwrites the same file each time).
+            self.save_best_ckpt()
 
     def save_current_ckpt(self, ckpt_suffix, policy=None):
         if policy is None:
