@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from torchvision.transforms import v2
 
 from robo_manip_baselines.common import (
     DataKey,
@@ -16,6 +17,44 @@ class ManiFlowImageDataset(DatasetBase, DpStyleDatasetMixin):
 
     def setup_variables(self):
         self.setup_dp_style_chunk()
+
+    def setup_image_transforms(self):
+        """
+        Only the uint8-compatible spatial augmentations run here. Dtype conversion
+        (uint8 -> float32) and the [-1, 1] rescale are deferred to the GPU (see
+        TrainManiFlowPolicy), since doing them here would transfer 4x larger
+        float32 image batches over PCIe on every step.
+        """
+        image_transform_list = []
+
+        if self.model_meta_info["image"]["aug_erasing_scale"] > 0.0:
+            scale = self.model_meta_info["image"]["aug_erasing_scale"]
+            image_transform_list.append(v2.RandomErasing(p=0.5 * scale))
+
+        if self.model_meta_info["image"]["aug_color_scale"] > 0.0:
+            scale = self.model_meta_info["image"]["aug_color_scale"]
+            image_transform_list.append(
+                v2.ColorJitter(
+                    brightness=0.4 * scale,
+                    contrast=0.4 * scale,
+                    saturation=0.4 * scale,
+                    hue=0.05 * scale,
+                )
+            )
+
+        if self.model_meta_info["image"]["aug_affine_scale"] > 0.0:
+            scale = self.model_meta_info["image"]["aug_affine_scale"]
+            image_transform_list.append(
+                v2.RandomAffine(
+                    degrees=4.0 * scale,
+                    translate=(0.05 * scale, 0.05 * scale),
+                    scale=(1.0 - 0.1 * scale, 1.0 + 0.1 * scale),
+                )
+            )
+
+        if len(image_transform_list) == 0:
+            image_transform_list.append(v2.Identity())
+        self.image_transforms = v2.Compose(image_transform_list)
 
     def __len__(self):
         return len(self.chunk_info_list)
@@ -98,11 +137,3 @@ class ManiFlowImageDataset(DatasetBase, DpStyleDatasetMixin):
             ]
 
         return data
-
-    def augment_data(self, state, action, images):
-        state, action, images = super().augment_data(state, action, images)
-
-        # Adjust to a range from -1 to 1 to match the original implementation
-        images = images * 2.0 - 1.0
-
-        return state, action, images

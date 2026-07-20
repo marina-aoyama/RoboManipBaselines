@@ -349,6 +349,27 @@ class TrainManiFlowPolicy(TrainBase, TrainPointCloudMixin):
             if self.args.use_ema:
                 self.ema_policy.load_state_dict(self.policy.state_dict())
 
+    def batch_to_device(self, data):
+        """
+        Transfer a batch to the GPU. Image tensors arrive as uint8 (see
+        ManiFlowImageDataset.setup_image_transforms) to keep the PCIe transfer small;
+        the dtype conversion and [-1, 1] rescale that used to happen on CPU in the
+        Dataset are applied here instead, once the (much smaller) uint8 tensor is
+        already on the GPU.
+        """
+        image_aug_std = self.model_meta_info["image"]["aug_std"]
+
+        def convert(x):
+            x = x.cuda()
+            if x.dtype == torch.uint8:
+                x = x.float() / 255.0
+                if image_aug_std > 0.0:
+                    x = (x + image_aug_std * torch.randn_like(x)).clamp(0.0, 1.0)
+                x = x * 2.0 - 1.0
+            return x
+
+        return dict_apply(data, convert)
+
     def train_loop(self):
         ema_model = self.ema_policy if self.args.use_ema else None
         for epoch in tqdm(range(self.args.num_epochs)):
@@ -356,7 +377,7 @@ class TrainManiFlowPolicy(TrainBase, TrainPointCloudMixin):
             batch_result_list = []
             for data in self.train_dataloader:
                 loss, _ = self.policy.compute_loss(
-                    dict_apply(data, lambda x: x.cuda()), ema_model=ema_model
+                    self.batch_to_device(data), ema_model=ema_model
                 )
                 loss.backward()
                 self.optimizer.step()
@@ -381,7 +402,7 @@ class TrainManiFlowPolicy(TrainBase, TrainPointCloudMixin):
                 batch_result_list = []
                 for data in self.val_dataloader:
                     loss, _ = policy.compute_loss(
-                        dict_apply(data, lambda x: x.cuda()), ema_model=ema_model
+                        self.batch_to_device(data), ema_model=ema_model
                     )
                     batch_result_list.append(self.detach_batch_result({"loss": loss}))
                 epoch_summary = self.log_epoch_summary(batch_result_list, "val", epoch)
