@@ -14,3 +14,6 @@ GSYMS
 GTAGS
 
 .codex
+
+diversity/
+diversity_check*
