@@ -3,6 +3,7 @@ from .ur5e.MujocoUR5eRingEnv import MujocoUR5eRingEnv
 from .ur5e.MujocoUR5eParticleEnv import MujocoUR5eParticleEnv
 from .ur5e.MujocoUR5eClothEnv import MujocoUR5eClothEnv
 from .ur5e.MujocoUR5eInsertEnv import MujocoUR5eInsertEnv
+from .ur5e.MujocoUR5eInsertTactileEnv import MujocoUR5eInsertTactileEnv
 from .ur5e.MujocoUR5eDoorEnv import MujocoUR5eDoorEnv
 from .ur5e.MujocoUR5eCabinetEnv import MujocoUR5eCabinetEnv
 from .ur5e.MujocoUR5eToolboxEnv import MujocoUR5eToolboxEnv

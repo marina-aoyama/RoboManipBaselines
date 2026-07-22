@@ -1,0 +1,65 @@
+<mujoco model="ur5e_insert_tactile">
+  <include file="./env_ur5e_common.xml"/>
+
+  <option timestep="0.002" integrator="implicitfast"/>
+
+  <include file="../../robots/ur5e/ur5e_tactile_sensor_config.xml"/>
+
+  <include file="../../robots/ur5e/ur5e_integrated_shared_config.xml"/>
+  <include file="../../robots/ur5e/ur5e_integrated_specific_config.xml"/>
+
+  <asset>
+    <texture name="peg" file="general/metal2.png" type="cube"/>
+    <material name="peg1" texture="peg" rgba="1.0 0.1 0.8 1.0" specular="1.0" shininess="1.0"/>
+    <material name="peg2" texture="peg" rgba="0.5 0.5 0.8 1.0" specular="1.0" shininess="1.0"/>
+    <texture name="hole" file="general/metal2.png" type="cube"/>
+    <material name="hole" texture="hole" rgba="0.8 0.8 0.1 1.0" specular="1.0" shininess="1.0"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true" diffuse="0.3 0.3 0.3" castshadow="false"/>
+
+    <camera name="front" mode="fixed" pos="0.5 0.0 1.5" euler="0.0 0.785398 1.5708"/>
+    <camera name="left" mode="fixed" pos="-0.0 -0.75 1.35" euler="0.785398 0.0 0.0"/>
+    <camera name="right" mode="fixed" pos="-0.0 0.75 1.35" euler="-0.785398 0.0 3.1415"/>
+
+    <geom name="floor" size="0 0 0.05" type="plane" material="floor"/>
+
+    <geom name="wall1" type="box" size="10 10 0.01" pos="10 0 10" zaxis="1 0 0" material="wall"/>
+    <geom name="wall2" type="box" size="10 10 0.01" pos="-10 0 10" zaxis="1 0 0" material="wall"/>
+    <geom name="wall3" type="box" size="10 10 0.01" pos="0 10 10" zaxis="0 1 0" material="wall"/>
+    <geom name="wall4" type="box" size="10 10 0.01" pos="0 -10 10" zaxis="0 1 0" material="wall"/>
+
+    <body name="table">
+      <geom type="box" size="0.275 0.5 0.4" pos="0 0 0.4" material="table_base"/>
+      <geom type="box" size="0.275 0.5 0.0075" pos="0 0 0.8075" material="table_plate"/>
+    </body>
+
+    <body name="stand">
+      <geom type="box" size="0.33 0.33 0.4" pos="-0.605 0 0.4" material="stand"/>
+    </body>
+
+    <body name="ur5e_root_frame" pos="-0.605 0.0 0.8">
+      <include file="../../robots/ur5e/ur5e_integrated_body.xml"/>
+    </body>
+
+    <!-- Peg rests on the table surface (top at z=0.815) so it must be picked up
+         via real contact grasping instead of the fixed-offset weld used by
+         MujocoUR5eInsertEnv. x is kept clear of the hole fixture's world-x
+         span [-0.145, -0.015] (fixed regardless of world_idx, since only the
+         hole's y is randomized) so the peg never spawns overlapping it. -->
+    <body name="peg" pos="0.05 -0.13 0.855">
+      <freejoint/>
+      <geom type="box" size="0.015 0.015 0.02" pos="0.0 0.0 0.02" material="peg1"/>
+      <geom type="box" size="0.015 0.015 0.02" pos="0.0 0.0 -0.02" material="peg2"/>
+    </body>
+
+    <body name="hole" pos="-0.08 -0.08 0.815">
+      <!-- <freejoint/> -->
+      <geom name="hole1" type="box" size="0.02 0.045 0.02" pos="0.045 -0.02 0.02" material="hole"/>
+      <geom name="hole2" type="box" size="0.02 0.045 0.02" pos="-0.045 0.02 0.02" material="hole"/>
+      <geom name="hole3" type="box" size="0.045 0.02 0.02" pos="0.02 0.045 0.02" material="hole"/>
+      <geom name="hole4" type="box" size="0.045 0.02 0.02" pos="-0.02 -0.045 0.02" material="hole"/>
+    </body>
+  </worldbody>
+</mujoco>
