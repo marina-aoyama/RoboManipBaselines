@@ -1,0 +1,13 @@
+# "Basics first" config: sparse binary success reward only (whatever the
+# wrapped env's own _get_reward() returns, unmodified), single fixed reset
+# distribution (uniform over --world_idx_list), no early truncation, no
+# workspace bounds. The point of this pass is just to find out whether
+# residual RL helps or hurts at all on top of the frozen ManiFlow base
+# policy -- add dense shaping / diverse resets back later, per-task, only if
+# this sparse signal turns out too slow to learn from.
+policy_mode: residual
+success_reward_threshold: 1.0
+early_truncation:
+  enabled: false
+workspace_bounds:
+  enabled: false

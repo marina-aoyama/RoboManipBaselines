@@ -2,37 +2,24 @@ import dataclasses
 
 import yaml
 
-RESET_CATEGORIES = ("default", "near_object", "stable_grasp", "near_goal")
 POLICY_MODES = ("residual", "full")
 FULL_RL_ACTION_SPACES = ("joint", "cartesian")
 
 
 @dataclasses.dataclass
-class RewardTermConfig:
-    """reach/dist are progress rewards: weight * (prev_dist - curr_dist), not
-    absolute-proximity rewards. This matters -- an absolute-proximity reward
-    (weight * f(dist), e.g. exp/tanh-shaped) pays out every single step just
-    for *being* close, which a discounted RL objective can exploit by holding
-    position near a good-but-not-quite-successful state indefinitely rather
-    than pushing through to the sparse success reward and ending the episode.
-    Verified quantitatively for this task: with gamma=0.99 and the previous
-    absolute formulation, looping near the goal for a full ~30s episode paid
-    ~5.5x more discounted return than succeeding within ~1s. Progress reward
-    can't be farmed this way -- holding still yields exactly zero regardless
-    of duration, since prev_dist == curr_dist. Default weight is larger than
-    the old absolute-reward default since per-step deltas are cm-scale, not
-    the old formulation's bounded [0,1]-ish scale -- treat as a starting
-    point that needs empirical retuning, not a derived value."""
-
-    enabled: bool = False
-    weight: float = 5.0
-
-
-@dataclasses.dataclass
 class EarlyTruncationConfig:
+    """Truncates an episode after `patience_seconds` with no improvement in
+    the episode's best-so-far reward. Deliberately reward-based (not
+    distance-based) so it stays generic across envs -- unlike gripper-to-
+    object distance, reward is available from every env's own
+    `_get_reward()` with no task-specific plumbing required. For a sparse
+    binary-success task (e.g. Insert) this is close to a no-op (reward only
+    ever "improves" at the moment of success, which already terminates the
+    episode); for a shaped/continuous reward (e.g. Door's reach+open
+    blend) it truncates episodes that have stalled without progress."""
+
     enabled: bool = False
     patience_seconds: float = 5.0
-    reach_threshold: float = 0.3
 
 
 @dataclasses.dataclass
@@ -47,9 +34,10 @@ class FullRlConfig:
 @dataclasses.dataclass
 class WorkspaceBoundsConfig:
     """Truncate the episode if the gripper leaves this box -- mainly useful
-    with policy_mode='full', where nothing (no ACT prior) otherwise keeps a
-    randomly-initialized policy's actions anywhere near sensible early in
-    training."""
+    with policy_mode='full', where nothing (no base-policy prior) otherwise
+    keeps a randomly-initialized policy's actions anywhere near sensible
+    early in training. Env-agnostic: only reads the eef position via FK, no
+    object-specific state."""
 
     enabled: bool = False
     x_min: float = -0.5
@@ -62,16 +50,23 @@ class WorkspaceBoundsConfig:
 
 @dataclasses.dataclass
 class ResidualRlConfig:
-    """Experiment-shaped configuration for `ResidualToolboxEnv`: policy mode
-    (residual-on-ACT vs. full RL), reward composition, reset-category mix,
-    and early truncation. Everything that changes what is being trained (not
-    how the run is operated) lives here, loaded from YAML, so different
-    experiments are a `--config` flag rather than a code change."""
+    """Experiment-shaped configuration for `ResidualEnv`: policy mode
+    (residual-on-base-policy vs. full RL), success/termination behavior, and
+    early truncation. Everything that changes what is being trained (not how
+    the run is operated) lives here, loaded from YAML, so different
+    experiments are a `--config` flag rather than a code change.
 
-    policy_mode: str = "residual"  # "residual" (small delta on ACT) or "full"
-    reach: RewardTermConfig = dataclasses.field(default_factory=RewardTermConfig)
-    dist: RewardTermConfig = dataclasses.field(default_factory=RewardTermConfig)
-    reset_weights: dict = dataclasses.field(default_factory=lambda: {"default": 1.0})
+    Deliberately env-agnostic: earlier versions of this config carried
+    object-pose-dependent dense reward terms (reach/dist progress rewards)
+    and a diverse-reset system, both mined for a specific task's object
+    geometry (Toolbox pick-and-place). Neither generalizes to an arbitrary
+    env without per-task code, so both were dropped when this was
+    generalized beyond Toolbox -- see git history
+    (residual_rl/configs/baseline.yaml etc.) if that machinery is needed
+    again for a specific task."""
+
+    policy_mode: str = "residual"  # "residual" (small delta on base policy) or "full"
+    success_reward_threshold: float = 1.0
     early_truncation: EarlyTruncationConfig = dataclasses.field(
         default_factory=EarlyTruncationConfig
     )
@@ -92,17 +87,7 @@ class ResidualRlConfig:
                 f"Expected one of {POLICY_MODES}."
             )
 
-        rewards = raw.get("rewards", {})
-        reach = RewardTermConfig(**rewards.get("reach", {}))
-        dist = RewardTermConfig(**rewards.get("dist", {}))
-
-        reset_weights = raw.get("resets", {"default": 1.0})
-        unknown_categories = set(reset_weights) - set(RESET_CATEGORIES)
-        if unknown_categories:
-            raise ValueError(
-                f"Unknown reset categories in {path}: {unknown_categories}. "
-                f"Expected a subset of {RESET_CATEGORIES}."
-            )
+        success_reward_threshold = raw.get("success_reward_threshold", 1.0)
 
         early_truncation = EarlyTruncationConfig(**raw.get("early_truncation", {}))
 
@@ -117,9 +102,7 @@ class ResidualRlConfig:
 
         return cls(
             policy_mode=policy_mode,
-            reach=reach,
-            dist=dist,
-            reset_weights=reset_weights,
+            success_reward_threshold=success_reward_threshold,
             early_truncation=early_truncation,
             full_rl=full_rl,
             workspace_bounds=workspace_bounds,

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Train a residual SAC policy on top of a frozen ACT checkpoint.
+"""Train a residual SAC policy on top of a frozen ManiFlow base policy.
 
 Example:
     python3 train_residual_sac.py \\
-        --act_checkpoint ../checkpoint/Act/MujocoUR5eToolbox_Dataset30_Act_.../policy_last.ckpt \\
-        --world_idx_list 0 1 2 3 4 5 \\
+        --env_id robo_manip_baselines/MujocoUR5eInsertEnv-v0 \\
+        --maniflow_checkpoint ../checkpoint/ManiFlowPolicy/front_hand_deltaeef_world0_insert/policy_last.ckpt \\
+        --world_idx_list 0 \\
         --total_timesteps 100000
 """
 
@@ -20,21 +21,17 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
-from robo_manip_baselines.residual_rl import ResidualRlConfig, ResidualToolboxEnv
+from robo_manip_baselines.residual_rl import ResidualEnv, ResidualRlConfig
 
 
 class SuccessRateCallback(BaseCallback):
-    """Logs `pick`-only and full `pick_and_place` success rates separately
-    (as rolling means over the last `window_size` completed episodes), so we
-    can tell whether failures are dominated by missed grasps or by placement
-    once the box is picked up.
-
-    Also saves a "best" checkpoint (model + VecNormalize stats) whenever the
-    rolling `pap_success_rate` reaches a new high, once at least
-    `min_episodes_for_best` episodes have completed. SAC's off-policy training
-    can drift away from a good intermediate policy (e.g. if the entropy
-    coefficient collapses before it stabilizes) -- without this, only the
-    *final* (possibly worse) policy would ever get saved.
+    """Logs the rolling success rate (mean over the last `window_size`
+    completed episodes), and saves a "best" checkpoint (model + VecNormalize
+    stats) whenever it reaches a new high, once at least
+    `min_episodes_for_best` episodes have completed. SAC's off-policy
+    training can drift away from a good intermediate policy (e.g. if the
+    entropy coefficient collapses before it stabilizes) -- without this,
+    only the *final* (possibly worse) policy would ever get saved.
     """
 
     def __init__(
@@ -42,28 +39,24 @@ class SuccessRateCallback(BaseCallback):
     ):
         super().__init__(verbose)
         self.checkpoint_dir = checkpoint_dir
-        self.pick_success_window = deque(maxlen=window_size)
-        self.pap_success_window = deque(maxlen=window_size)
+        self.success_window = deque(maxlen=window_size)
         self.min_episodes_for_best = min_episodes_for_best
-        self.best_pap_success_rate = -1.0
+        self.best_success_rate = -1.0
 
     def _on_step(self):
         for info, done in zip(self.locals["infos"], self.locals["dones"]):
             if done:
-                self.pick_success_window.append(bool(info.get("pick_success", False)))
-                self.pap_success_window.append(bool(info.get("success", False)))
+                self.success_window.append(bool(info.get("success", False)))
 
-        if len(self.pap_success_window) > 0:
-            pick_rate = float(np.mean(self.pick_success_window))
-            pap_rate = float(np.mean(self.pap_success_window))
-            self.logger.record("rollout/pick_success_rate", pick_rate)
-            self.logger.record("rollout/pap_success_rate", pap_rate)
+        if len(self.success_window) > 0:
+            success_rate = float(np.mean(self.success_window))
+            self.logger.record("rollout/success_rate", success_rate)
 
             if (
-                len(self.pap_success_window) >= self.min_episodes_for_best
-                and pap_rate > self.best_pap_success_rate
+                len(self.success_window) >= self.min_episodes_for_best
+                and success_rate > self.best_success_rate
             ):
-                self.best_pap_success_rate = pap_rate
+                self.best_success_rate = success_rate
                 self.model.save(
                     os.path.join(self.checkpoint_dir, "residual_sac_best")
                 )
@@ -72,7 +65,7 @@ class SuccessRateCallback(BaseCallback):
                 )
                 if self.verbose > 0:
                     print(
-                        f"[SuccessRateCallback] New best pap_success_rate={pap_rate:.3f} "
+                        f"[SuccessRateCallback] New best success_rate={success_rate:.3f} "
                         f"at step {self.num_timesteps}, saved checkpoint"
                     )
         return True
@@ -83,42 +76,64 @@ def parse_args():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
-        "--act_checkpoint", type=str, required=True, help="frozen ACT checkpoint file"
+        "--env_id",
+        type=str,
+        required=True,
+        help="gymnasium env id, e.g. robo_manip_baselines/MujocoUR5eInsertEnv-v0",
+    )
+    parser.add_argument(
+        "--maniflow_checkpoint", type=str, required=True, help="frozen ManiFlow checkpoint file"
     )
     parser.add_argument(
         "--config",
         type=str,
-        default=os.path.join(os.path.dirname(__file__), "configs", "baseline.yaml"),
-        help=(
-            "path to a ResidualRlConfig YAML (see configs/baseline.yaml for the "
-            "original sparse-reward/single-reset setup, configs/omnireset_dense.yaml "
-            "for diverse resets + dense reach/dist reward + early truncation)"
-        ),
+        default=os.path.join(os.path.dirname(__file__), "configs", "insert_basic.yaml"),
+        help="path to a ResidualRlConfig YAML (see configs/insert_basic.yaml)",
     )
     parser.add_argument(
         "--world_idx_list",
         type=int,
         nargs="*",
-        default=list(range(6)),
+        default=[0],
         help="world indexes to sample from each episode reset",
     )
     parser.add_argument(
-        "--residual_action_scale_arm",
+        "--residual_scale_pos",
         type=float,
-        default=0.05,
-        help="max residual magnitude for each arm joint [rad]",
+        default=0.01,
+        help="max residual magnitude for eef position deltas [m]",
     )
     parser.add_argument(
-        "--residual_action_scale_gripper",
+        "--residual_scale_rot",
+        type=float,
+        default=0.05,
+        help="max residual magnitude for eef rotation deltas [rad]",
+    )
+    parser.add_argument(
+        "--residual_scale_gripper",
         type=float,
         default=10.0,
-        help="max residual magnitude for the gripper joint [device units, 0-255 scale]",
+        help="max residual magnitude for the gripper command [device units]",
+    )
+    parser.add_argument(
+        "--residual_scale_joint",
+        type=float,
+        default=0.05,
+        help="max residual magnitude for raw joint-position actions [rad] "
+        "(only relevant if the checkpoint's action_keys are joint-space)",
     )
     parser.add_argument(
         "--max_episode_duration",
         type=float,
         default=30.0,
         help="episode timeout [s] (mirrors RolloutBase's --max_duration default)",
+    )
+    parser.add_argument(
+        "--skip_reward_check",
+        action="store_true",
+        help="skip the pre-training reward sanity check (see ResidualEnv.sanity_check_reward) "
+        "-- not recommended, it's cheap and catches a dead/misconfigured reward signal "
+        "before burning a training run on it",
     )
     parser.add_argument(
         "--ent_coef",
@@ -150,10 +165,11 @@ def parse_args():
         help=(
             "Target entropy for SAC's auto ent_coef tuning (only used when "
             "--ent_coef=auto). SB3's own default ('auto' here resolves to "
-            "-action_dim = -7) drove ent_coef toward ~0 within ~10-15k steps on "
-            "this sparse-reward task, cutting off exploration before the policy "
-            "stabilized. A less negative value (e.g. -3.5) makes the auto-tuner "
-            "settle at a higher exploration floor instead of decaying toward 0."
+            "-action_dim) drove ent_coef toward ~0 within ~10-15k steps on a "
+            "sparse-reward task in earlier experiments, cutting off exploration "
+            "before the policy stabilized. A less negative value (e.g. -3.5) makes "
+            "the auto-tuner settle at a higher exploration floor instead of "
+            "decaying toward 0."
         ),
     )
     parser.add_argument(
@@ -191,12 +207,9 @@ def parse_args():
         "--norm_reward",
         action="store_true",
         help=(
-            "normalize reward via VecNormalize (default: off, raw reward). With "
-            "dense reach/dist terms at weight=5.0, raw Q-targets are large, which "
-            "pushes the actor toward exploitation (and thus lower realized policy "
-            "entropy) fast; normalizing keeps Q-value magnitude from dominating "
-            "the actor loss early. Safe to toggle independently of rollout -- "
-            "rollout only uses the saved obs normalization stats, never reward."
+            "normalize reward via VecNormalize (default: off, raw reward). Safe to "
+            "toggle independently of rollout -- rollout only uses the saved obs "
+            "normalization stats, never reward."
         ),
     )
     parser.add_argument("--total_timesteps", type=int, default=100_000)
@@ -204,7 +217,7 @@ def parse_args():
         "--checkpoint_dir",
         type=str,
         default=None,
-        help="output directory (default: checkpoint/ResidualRl/<act_ckpt_name>_ResidualRl_<timestamp>)",
+        help="output directory (default: checkpoint/ResidualRl/<env>_ResidualRl_<timestamp>)",
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
@@ -223,14 +236,21 @@ def parse_args():
 
 def main():
     args = parse_args()
-    args.act_checkpoint = os.path.abspath(args.act_checkpoint)
+    args.maniflow_checkpoint = os.path.abspath(args.maniflow_checkpoint)
     args.config = os.path.abspath(args.config)
     config = ResidualRlConfig.from_yaml(args.config)
 
+    residual_action_scale = {
+        "pos": args.residual_scale_pos,
+        "rot": args.residual_scale_rot,
+        "gripper": args.residual_scale_gripper,
+        "joint": args.residual_scale_joint,
+    }
+
     if args.checkpoint_dir is None:
-        act_ckpt_dirname = os.path.basename(os.path.dirname(args.act_checkpoint))
+        env_dirname = args.env_id.split("/")[-1].replace("-v0", "")
         checkpoint_dirname = "{}_ResidualRl_{:%Y%m%d_%H%M%S}".format(
-            act_ckpt_dirname, datetime.datetime.now()
+            env_dirname, datetime.datetime.now()
         )
         args.checkpoint_dir = os.path.normpath(
             os.path.join(
@@ -256,18 +276,35 @@ def main():
         )
 
     def make_env():
-        env = ResidualToolboxEnv(
-            act_checkpoint=args.act_checkpoint,
+        return ResidualEnv(
+            env_id=args.env_id,
             config=config,
+            maniflow_checkpoint=args.maniflow_checkpoint,
             world_idx_list=args.world_idx_list,
-            residual_action_scale_arm=args.residual_action_scale_arm,
-            residual_action_scale_gripper=args.residual_action_scale_gripper,
+            residual_action_scale=residual_action_scale,
             max_episode_duration=args.max_episode_duration,
             render_mode="human" if args.render else None,
         )
-        return Monitor(env)
 
-    vec_env = DummyVecEnv([make_env])
+    if not args.skip_reward_check:
+        print("[train_residual_sac] Running pre-training reward sanity check...")
+        check_env = make_env()
+        any_nonzero, _ = check_env.sanity_check_reward(
+            num_episodes=min(3, len(args.world_idx_list) * 2)
+        )
+        # check_env.close() is intentionally not called — MujocoEnvBase's
+        # viewer cleanup raises on teardown regardless of render_mode (the
+        # same reason RolloutBase.run() and rollout_residual.py both skip
+        # their own env.close() too). The process exiting reclaims
+        # everything anyway.
+        if not any_nonzero:
+            raise RuntimeError(
+                "[train_residual_sac] Reward sanity check found reward=0.0 the entire "
+                "time -- refusing to start training against what looks like a dead "
+                "reward signal. Pass --skip_reward_check to override."
+            )
+
+    vec_env = DummyVecEnv([lambda: Monitor(make_env())])
     vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=args.norm_reward)
 
     try:
@@ -302,10 +339,10 @@ def main():
     vec_env.save(os.path.join(args.checkpoint_dir, "vecnormalize.pkl"))
 
     residual_meta = {
-        "act_checkpoint": args.act_checkpoint,
+        "env_id": args.env_id,
+        "maniflow_checkpoint": args.maniflow_checkpoint,
         "config_path": args.config,
-        "residual_action_scale_arm": args.residual_action_scale_arm,
-        "residual_action_scale_gripper": args.residual_action_scale_gripper,
+        "residual_action_scale": residual_action_scale,
         "world_idx_list": args.world_idx_list,
         "max_episode_duration": args.max_episode_duration,
     }
