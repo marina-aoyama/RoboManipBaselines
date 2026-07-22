@@ -22,6 +22,7 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from robo_manip_baselines.residual_rl import ResidualEnv, ResidualRlConfig
+from robo_manip_baselines.residual_rl.layer_norm_policy import LayerNormSACPolicy
 
 
 class SuccessRateCallback(BaseCallback):
@@ -173,6 +174,16 @@ def parse_args():
         ),
     )
     parser.add_argument(
+        "--gamma",
+        type=float,
+        default=0.999,
+        help="discount factor. SB3 SAC's own default is 0.99; with ~150 RL-steps per "
+        "episode here (skip=3 raw steps each), 0.99^150 ~= 0.22 heavily discounts a "
+        "success reward that far out, while 0.999^150 ~= 0.86 doesn't -- matches "
+        "train_dsrl_sac.py's value (from nakamoto/dsrl_pi0's run_libero.sh), though "
+        "arguably even more needed here given residual RL's finer step granularity.",
+    )
+    parser.add_argument(
         "--learning_starts",
         type=int,
         default=2000,
@@ -211,6 +222,15 @@ def parse_args():
             "toggle independently of rollout -- rollout only uses the saved obs "
             "normalization stats, never reward."
         ),
+    )
+    parser.add_argument(
+        "--no_layer_norm",
+        action="store_true",
+        help="use SB3's plain MlpPolicy instead of LayerNormSACPolicy. LayerNorm is on by "
+        "default for consistency with train_dsrl_sac.py, though the motivating symptom "
+        "(critic-loss divergence at high update-to-data ratio) is a weaker concern here at "
+        "the current --gradient_steps=1 (low UTD) than it is for DSRL's --gradient_steps=20. "
+        "See layer_norm_policy.py.",
     )
     parser.add_argument("--total_timesteps", type=int, default=100_000)
     parser.add_argument(
@@ -318,12 +338,13 @@ def main():
         target_entropy = args.target_entropy  # e.g. "auto"
 
     model = SAC(
-        "MlpPolicy",
+        "MlpPolicy" if args.no_layer_norm else LayerNormSACPolicy,
         vec_env,
         verbose=1,
         seed=args.seed,
         ent_coef=ent_coef,
         target_entropy=target_entropy,
+        gamma=args.gamma,
         learning_starts=args.learning_starts,
         train_freq=args.train_freq,
         gradient_steps=args.gradient_steps,

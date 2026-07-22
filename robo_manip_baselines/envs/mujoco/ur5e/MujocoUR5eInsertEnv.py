@@ -42,6 +42,10 @@ class MujocoUR5eInsertEnv(MujocoUR5eEnvBase):
             ]
         )  # [m]
 
+    def get_object_pose(self):
+        """Get the pose of the manipulated object (peg)."""
+        return self.get_body_pose("peg")
+
     def _get_reward(self):
         peg_pos = self.data.body("peg").xpos.copy()
         hole_pos = self.data.body("hole").xpos.copy()

@@ -1,13 +1,11 @@
-import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-# Registers "robo_manip_baselines/<EnvClassName>-v0" with gymnasium.
-import robo_manip_baselines.envs  # noqa: F401
-from robo_manip_baselines.common import DataKey, MotionManager, convert_data_to_policy
+from robo_manip_baselines.common import DataKey
 
 from .config import ResidualRlConfig
 from .frozen_maniflow_policy import FrozenManiFlowPolicy
+from .frozen_policy_env_base import FrozenPolicyEnvBase
 
 # Keys whose policy-space vector is [pos_x, pos_y, pos_z, rot_x, rot_y, rot_z]
 # (a 6-dim "rel" pose is always 3 translation + 3 rotation by construction --
@@ -22,7 +20,7 @@ _GRIPPER_KEYS = (DataKey.COMMAND_GRIPPER_JOINT_POS, DataKey.COMMAND_GRIPPER_JOIN
 _JOINT_KEYS = (DataKey.COMMAND_JOINT_POS, DataKey.COMMAND_JOINT_POS_REL)
 
 
-class ResidualEnv(gym.Env):
+class ResidualEnv(FrozenPolicyEnvBase):
     """Generic residual-RL / full-RL wrapper: works with any registered
     `robo_manip_baselines` env (via `env_id`, e.g.
     "robo_manip_baselines/MujocoUR5eInsertEnv-v0") and, in "residual" mode,
@@ -34,7 +32,10 @@ class ResidualEnv(gym.Env):
     `modify_world(world_idx)` for reset diversity, and (via
     `MotionManager`/`ArmManager`) FK/IK for the robot's eef pose. See
     `MujocoUR5eInsertEnv._get_reward` for a concrete example of the binary
-    success signal this wrapper consumes as-is.
+    success signal this wrapper consumes as-is. Shared reset/success/
+    termination bookkeeping lives in `FrozenPolicyEnvBase` -- see there for
+    that, and see `DsrlEnv` for the noise-space-steering sibling of this
+    action-space-residual approach.
 
     Action composition depends on `config.policy_mode`:
     - "residual" (default): the frozen ManiFlow policy's own action
@@ -59,8 +60,6 @@ class ResidualEnv(gym.Env):
     rather than baking object-specific state into this generic wrapper.
     """
 
-    metadata = {"render_modes": ["human", "rgb_array", "depth_array"]}
-
     def __init__(
         self,
         env_id,
@@ -72,16 +71,8 @@ class ResidualEnv(gym.Env):
         render_mode=None,
         device="cuda",
     ):
-        super().__init__()
-
-        self.config = config if config is not None else ResidualRlConfig()
-        self.world_idx_list = list(world_idx_list) if world_idx_list is not None else [0]
-        self.max_episode_duration = max_episode_duration
-        self.render_mode = render_mode
-
-        self.base_env = gym.make(env_id, render_mode=render_mode)
-        self.motion_manager = MotionManager(self.base_env)
-        self.arm_manager = self.motion_manager.body_manager_list[0]
+        config = config if config is not None else ResidualRlConfig()
+        super().__init__(env_id, config, world_idx_list, max_episode_duration, render_mode)
 
         if self.config.policy_mode == "residual":
             if maniflow_checkpoint is None:
@@ -137,47 +128,19 @@ class ResidualEnv(gym.Env):
                 raise ValueError(f"No default residual scale known for action key {key}")
         return np.array(scale)
 
-    def _get_base_policy_state(self, base_obs):
-        return np.concatenate(
-            [
-                convert_data_to_policy(self.motion_manager.get_data(key, base_obs), key)
-                for key in self.frozen_policy.state_keys
-            ]
-        ).astype(np.float64)
-
     def _make_obs(self, base_obs, base_action=None):
         if self.frozen_policy is None:
             return base_obs["joint_pos"].astype(np.float64)
-        state = self._get_base_policy_state(base_obs)
+        state = self.frozen_policy.get_raw_state(base_obs)
         if base_action is None:
             base_action = np.zeros(self.frozen_policy.action_dim)
         return np.concatenate([state, base_action]).astype(np.float64)
 
-    def _get_gripper_pos(self):
-        self.arm_manager.forward_kinematics()
-        return self.arm_manager.current_se3.translation.copy()
-
     def reset(self, *, seed=None, options=None):
-        super().reset(seed=seed)
-
-        if options is not None and "world_idx" in options:
-            world_idx = options["world_idx"]
-        else:
-            world_idx = int(self.np_random.choice(self.world_idx_list))
-        self.base_env.unwrapped.modify_world(world_idx=world_idx)
-        base_obs, info = self.base_env.reset()
-
-        self.motion_manager.reset()
+        base_obs, info = super().reset(seed=seed, options=options)
         if self.frozen_policy is not None:
             self.frozen_policy.reset()
-
-        self._base_obs = base_obs
-        self._info = info
-        self._episode_start_time = self.base_env.unwrapped.get_time()
-        self._best_reward_so_far = 0.0
-        self._time_of_best_reward = 0.0
         self._last_base_action = None
-
         return self._make_obs(base_obs), info
 
     def step(self, raw_action):
@@ -227,36 +190,7 @@ class ResidualEnv(gym.Env):
         self._base_obs = base_obs
         self._info = info
 
-        success = reward >= self.config.success_reward_threshold
-        elapsed_duration = self.base_env.unwrapped.get_time() - self._episode_start_time
-
-        if reward > self._best_reward_so_far:
-            self._best_reward_so_far = reward
-            self._time_of_best_reward = elapsed_duration
-
-        terminated = bool(success)
-        truncated = (not terminated) and (elapsed_duration >= self.max_episode_duration)
-
-        if self.config.early_truncation.enabled and not terminated and not truncated:
-            if (
-                elapsed_duration - self._time_of_best_reward
-                >= self.config.early_truncation.patience_seconds
-            ):
-                truncated = True
-
-        out_of_bounds = False
-        if self.config.workspace_bounds.enabled and not terminated and not truncated:
-            gripper_pos = self._get_gripper_pos()
-            wb = self.config.workspace_bounds
-            out_of_bounds = not (
-                wb.x_min <= gripper_pos[0] <= wb.x_max
-                and wb.y_min <= gripper_pos[1] <= wb.y_max
-                and wb.z_min <= gripper_pos[2] <= wb.z_max
-            )
-            if out_of_bounds:
-                truncated = True
-
-        info = {**info, "success": success, "out_of_bounds": out_of_bounds}
+        terminated, truncated, info = self._finalize_step(reward, base_obs, info)
 
         return (
             self._make_obs(base_obs, self._last_base_action),
@@ -265,60 +199,3 @@ class ResidualEnv(gym.Env):
             truncated,
             info,
         )
-
-    def sanity_check_reward(self, num_episodes=3, max_steps=None, verbose=True):
-        """Runs a few episodes with a zero residual (pure base policy, or in
-        "full" mode a no-op zero action) and reports whether any non-zero
-        reward was ever observed. Meant to be called once before spending
-        compute on training -- catches a dead/misconfigured reward signal
-        (e.g. wrong `success_reward_threshold`, or an env whose
-        `_get_reward()` never fires for reasons unrelated to policy quality)
-        in seconds instead of after a full training run against noise.
-
-        Returns (any_nonzero_reward_observed, max_reward_observed).
-        """
-        max_reward_observed = 0.0
-        for episode_idx in range(num_episodes):
-            world_idx = self.world_idx_list[episode_idx % len(self.world_idx_list)]
-            obs, info = self.reset(options={"world_idx": world_idx})
-            terminated = truncated = False
-            step_idx = 0
-            episode_max_reward = 0.0
-            zero_action = np.zeros(self.action_space.shape)
-            while not (terminated or truncated):
-                obs, reward, terminated, truncated, info = self.step(zero_action)
-                episode_max_reward = max(episode_max_reward, reward)
-                step_idx += 1
-                if max_steps is not None and step_idx >= max_steps:
-                    break
-            max_reward_observed = max(max_reward_observed, episode_max_reward)
-            if verbose:
-                print(
-                    f"[sanity_check_reward] episode {episode_idx} "
-                    f"(world_idx={world_idx}): max_reward={episode_max_reward:.3f}, "
-                    f"{'success' if info.get('success') else 'no success'}"
-                )
-
-        any_nonzero = max_reward_observed > 0.0
-        if verbose:
-            if any_nonzero:
-                print(
-                    f"[sanity_check_reward] OK: observed non-zero reward "
-                    f"(max={max_reward_observed:.3f}) across {num_episodes} episodes."
-                )
-            else:
-                print(
-                    f"[sanity_check_reward] WARNING: reward was 0.0 for the entire "
-                    f"{num_episodes}-episode check. Either the base policy never "
-                    f"succeeds within max_episode_duration on world_idx_list="
-                    f"{self.world_idx_list}, or success_reward_threshold "
-                    f"({self.config.success_reward_threshold}) doesn't match this "
-                    f"env's _get_reward() scale -- check both before training."
-                )
-        return any_nonzero, max_reward_observed
-
-    def render(self):
-        return self.base_env.render()
-
-    def close(self):
-        self.base_env.close()

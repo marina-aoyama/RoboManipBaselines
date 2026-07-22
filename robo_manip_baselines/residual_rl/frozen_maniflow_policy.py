@@ -51,10 +51,19 @@ class FrozenManiFlowPolicy:
     silently compound eef-pose deltas `skip`x too far.
     """
 
-    def __init__(self, checkpoint_path, motion_manager, device="cuda"):
+    def __init__(self, checkpoint_path, motion_manager, device="cuda", n_action_steps=None):
         checkpoint_dir = os.path.dirname(os.path.abspath(checkpoint_path))
         with open(os.path.join(checkpoint_dir, "model_meta_info.pkl"), "rb") as f:
             self.model_meta_info = pickle.load(f)
+
+        if n_action_steps is not None:
+            # Overrides the checkpoint's saved chunk length -- e.g. for DSRL,
+            # a shorter n_action_steps means the frozen policy (and thus the
+            # noise-steering RL policy) gets re-queried more often, trading
+            # more inference calls for more frequent steering opportunities.
+            # Mirrors RolloutManiFlowPolicy's own --n_action_steps override.
+            self.model_meta_info["policy"]["args"]["n_action_steps"] = n_action_steps
+            self.model_meta_info["data"]["n_action_steps"] = n_action_steps
 
         self.policy_type = self.model_meta_info["policy"]["policy_type"]
         if self.policy_type != "image":
@@ -79,6 +88,8 @@ class FrozenManiFlowPolicy:
         self.camera_names = self.model_meta_info["image"]["camera_names"]
         self.skip = self.model_meta_info["data"]["skip"]
         self.n_obs_steps = self.model_meta_info["data"]["n_obs_steps"]
+        self.n_action_steps = self.model_meta_info["data"]["n_action_steps"]
+        self.horizon = self.model_meta_info["policy"]["args"]["horizon"]
         self.image_size = self.model_meta_info["data"]["image_size"]
 
         self.device = torch.device(device)
@@ -104,6 +115,19 @@ class FrozenManiFlowPolicy:
         self.images_buf = None
         self.policy_action_buf = None
 
+    def get_raw_state(self, obs):
+        """Flat, unnormalized, policy-space proprioceptive state vector
+        (length `sum(self.state_dims)`), for use as an RL observation --
+        distinct from `_get_state()`/`_update_state_buf`, which maintain the
+        normalized, `n_obs_steps`-windowed, batched tensor actually fed to
+        the flow model."""
+        return np.concatenate(
+            [
+                convert_data_to_policy(self.motion_manager.get_data(key, obs), key)
+                for key in self.state_keys
+            ]
+        ).astype(np.float64)
+
     def get_base_action(self, obs, rgb_images):
         """Returns the base policy's next action as a flat, denormalized,
         policy-space vector (length `self.action_dim`, concatenated in
@@ -121,6 +145,43 @@ class FrozenManiFlowPolicy:
                 input_data[DataKey.get_rgb_image_key(camera_name)] = image
             with torch.inference_mode():
                 action = self.policy.predict_action(input_data)["action"][0]
+            self.policy_action_buf = list(
+                action.cpu().detach().numpy().astype(np.float64)
+            )
+
+        return denormalize_data(
+            self.policy_action_buf.pop(0), self.model_meta_info["action"]
+        )
+
+    def get_action_with_noise(self, obs, rgb_images, noise):
+        """DSRL variant of `get_base_action`: same skip/chunk-buffer cadence,
+        but whenever a fresh inference is actually needed (buffer empty),
+        `noise` (shape `(horizon, action_dim)`, unbatched) is fed into the
+        ManiFlow flow-matching sampler as its initial x0 instead of the
+        policy's own internal `torch.randn` draw -- this is DSRL's steering
+        mechanism (requires the forked ManiFlow's `predict_action(...,
+        noise=...)` override; see maniflow_image_policy.py).
+
+        `noise` is ignored on calls that just pop an already-generated
+        action from the buffer (i.e. when the previous inference's chunk
+        hasn't been fully consumed yet) -- steering only takes effect at the
+        cadence of actual policy queries (every `n_action_steps` calls),
+        exactly like `query_frequency` in the DSRL reference implementation.
+        """
+        self._update_state_buf(obs)
+        self._update_images_buf(rgb_images)
+
+        if self.policy_action_buf is None or len(self.policy_action_buf) == 0:
+            input_data = {"state": self._get_state()}
+            for camera_name, image in zip(self.camera_names, self._get_images()):
+                input_data[DataKey.get_rgb_image_key(camera_name)] = image
+            noise_batched = torch.as_tensor(
+                noise, dtype=torch.float32, device=self.device
+            )[torch.newaxis]
+            with torch.inference_mode():
+                action = self.policy.predict_action(input_data, noise=noise_batched)[
+                    "action"
+                ][0]
             self.policy_action_buf = list(
                 action.cpu().detach().numpy().astype(np.float64)
             )
